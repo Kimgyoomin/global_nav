@@ -1,0 +1,74 @@
+% nav_slicing2D
+% for checking collision of torso
+function map2D_binary = nav_slicing2D(map3D, torsoHeight)
+    % map3D             : occupancyMap3D object
+    % torsoHeight       : [m] Height of Torso Center
+    % map2D_binary      : logical 2D map (true = occupied, false = free)
+
+    xLimits     = map3D.XWorldLimits;   % ex) [-10, 10]
+    yLimits     = map3D.YWorldLimits;   % ex) [-10, 10]
+    resolution  = map3D.Resolution;     % cells/m (ex : 10)
+
+    % Create X, Y vector (grid coordinate)
+    xVec        = xLimits(1) : 1/resolution : xLimits(2);
+    yVec        = yLimits(1) : 1/resolution : yLimits(2);
+    [Xg, Yg]    = meshgrid(xVec, yVec);
+    N           = numel(Xg);
+
+
+    % Create Points as z = torsoHeight
+    XYZ         = [Xg(:), Yg(:), torsoHeight * ones(N, 1)];
+
+    % getOccupancy ; possiblity [0~1]
+    occProb     = map3D.getOccupancy(XYZ);
+    occBin      = occProb > map3D.OccupiedThreshold;
+
+    % (nRows x nCols) reshape
+    nCols           = numel(xVec);
+    nRows           = numel(yVec);
+    map2D_binary    = reshape(occBin, nCols);
+
+end
+
+function map2D_inflated = inflate2DManually(map2D_binary, robotRadius,...
+    resolution)
+    % map2D_binary      : Logical 2D map(true = occupied, false = true)
+    % robotRadius       : [m] radius of torso
+    % resolution        : cells/m
+    % map2D_inflated    : inflated 2D map(true=inflated obstacle)
+
+    pixelRadius     =round(robotRadius * resolution);
+    if pixelRadius < 1
+        pixelRadius = 1;
+    end
+
+    [nRows, nCols] = size(map2D_binary);
+    map2D_inflated = map2D_binary;      % Initialize
+
+    % occupied cell coordinate
+    [occRows, occCols]  = find(map2D_binary);
+    numOcc              = numel(occRows);
+
+    for idx = 1:numOcc
+        i0      = occRows(idx);
+        j0      = occCols(idx);
+        iMin    = max(i0 - pixelRadius, 1);
+        iMax    = min(i0 + pixelRadius, nRows);
+        jMin    = max(j0 - pixelRadius, 1);
+        jMax    = min(j0 + pixelRadius, nCols);
+
+        for i = iMin : iMax
+            for j = jMin : jMax
+                if ((i - i0)^2 + (j - j0)^2) <= pixelRadius^2
+                    map2D_inflated(i, j)    =
+
+
+
+    end
+
+
+
+
+
+
+end

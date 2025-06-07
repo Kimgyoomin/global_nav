@@ -1,0 +1,175 @@
+% main.m
+% Incorporate following setting
+% 1. Mapping
+% 2. Robot's URDF parsing
+% 3. Navigation Algorithm
+clear; clc; close all;
+
+% 1. Mapping
+% Mapping and play module
+% 3D Occupancy Grid map create and Initialize
+fprintf('1. Create map and Initialize\n');
+[map3D, xLimits, yLimits, zLimits] = nav_mapping();      % call nav_mapping.m file's function
+fprintf('Map Creation and Initialize finished\n\n');
+
+% 생성된 맵 객체를 main.m에서 시각화
+fprintf('Visualizing Mapping\n');
+mapFigure   = figure('Name', 'Main Script - Initial Empty 3D Occupancy Map');
+mapAxes     = axes('Parent', mapFigure);    % Axes Handle store (will use for
+% Robot Visualization
+show(map3D, 'Parent',mapAxes);          % Draw map based on specific axes
+title('Main Script - Initial Empty 3D Occupancy Grid Map (20x20x5m)');
+xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
+view(3); % 3D 뷰
+axis equal;
+hold(mapAxes, 'on');            % can draw on same axes so hold!!
+fprintf('Initial empty map visualiztion finished \n\n');
+
+% 3D -> 2D slice creation (At torso height XY plane)
+% build2DSlice : z = binary map return at the torsoHeight
+torsoHeight = 0.3; % [m] height of torso center
+map2D_binary = nav_slicing2D(map3D, torsoHeight, xLimits, yLimits);
+
+
+% Inflate 2D map : for just C loop
+rabotRadius = 0.2;  % [m] radius of torso
+resolution = map3D.Resolution; % map3D.Resoltuion == cells/m (ex:10)
+map2D_inflated = inflate2DManually(map2D_binary, rabotRadius, resolution);
+
+global INFLATED2D
+INFLATED2D = map2D_inflated;
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 2. Robot Modeling
+fprintf('2. Robot modeling Initialize \n');
+[robot, robotConstraints] = nav_robot_modeling();  % call nav_robot_modeling.m
+fprintf('Robot modeling finished \n');
+
+% robot model will be stored in robot, constraints will be stored in 
+% robotConstraints
+
+% Robot start pose (Orientation of base link in World Coordinate)
+% [x, y, z, roll, pitch, yaw]
+% For example : Set Robot in the O in map (X=0, Y=0, Z=0.3, Yaw = 0)
+startPose            = [0, 0, 0.3, 0, 0, 0];   %[x, y, z, r, p, y]
+startPosition        = startPose(1:3);
+% Robot's Goal Orientation
+% For example : Set Robot in the (X = 9, Y = 9, Z = 0.3, Yaw = 90)
+goalPose             = [9, 9, 0.3, 0, 0, deg2rad(90)];
+goalPosition         = goalPose(1:3);
+
+% Initial Robot joint configuration (Home pose v basic pose)
+initialConfig = homeConfiguration(robot);
+
+% Base -> World
+T_base_to_world = trvec2tform(startPosition)*eul2tform(startPose(4:6), 'XYZ');
+% Set Robot Base Link (1st body) to World Pose
+% Get Homogeneous Transformation Matrix
+% Set as r-p-y 'XYZ'
+robotTG = hgtransform('Parent', mapAxes);
+
+% Set Robot Model in the initial point of map
+robotGraphics = show(robot, initialConfig, ...
+                    'Parent', mapAxes, ...
+                    'PreservePlot', true, ...
+                    'FastUpdate', false, ...
+                    'Frames', 'off');
+
+% Delete handles which are not axes
+isAxesHandle    = arrayfun(@(h) strcmp(get(h, 'Type'), 'axes'), robotGraphics);
+nonAxesHandles  = robotGraphics(~isAxesHandle);
+
+set(nonAxesHandles, 'Parent', robotTG);
+set(robotTG, 'Matrix', T_base_to_world);
+
+
+% set(robotGraphics, 'Parent', robotTG);
+% set(robotTG, 'Matrix', T_base_to_world);
+
+% Search for Robot Base object and Transform
+% To check Robot Initial Position, make simple Marker
+plot3(mapAxes, startPosition(1), startPosition(2), startPosition(3), ...
+    'bo', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Robot Start');
+plot3(mapAxes, goalPosition(1), goalPosition(2), goalPosition(3), ...
+'rx', 'MarkerSize', 10, 'LineWidth', 2, 'DisplayName', 'Robot Goal');
+legend(mapAxes, 'show');
+
+fprintf('Robot Start pose : X=%.2f, Y=%.2f, Z=%.2f, Roll=%.2f, Pitch=%.2f, Yaw=%.2f (deg)\n', ...
+    startPose(1), startPose(2), startPose(3), rad2deg(startPose(4)), rad2deg(startPose(5)), rad2deg(startPose(6)));
+fprintf('Robot Goal pose: X=%.2f, Y=%.2f, Z=%.2f, Roll=%.2f, Pitch=%.2f, Yaw=%.2f (deg)\n', ...
+    goalPose(1), goalPose(2), goalPose(3), rad2deg(goalPose(4)), rad2deg(goalPose(5)), rad2deg(goalPose(6)));
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 3. Hybrid A star Navigation
+fprintf('Hybrid A* Navigation Initialized\n\n');
+
+% nav_hybrid_astar.m load
+% map, robot model, startPose, goalPose deliver
+plannedPath = nav_hybrid_astar(map3D, robot, robotConstraints, ...
+                               startPose, goalPose, xLimits, yLimits);
+
+fprintf('Hybrid A* Navigation Finished \n');
+
+
+%%%%%%%%%%%%% Visualizing Path by Hybrid A star Navigation
+% Depict plannedPath on mapAxes
+if ~isempty(plannedPath)
+    fprintf('Visualizing Planned Path Ongoing\n');
+
+    % plannedpath's 1, 2, 3 is (x, y, z) so plot this line to visualize
+    plot3(mapAxes, plannedPath(:,1), plannedPath(:,2), ...
+        plannedPath(:,3), 'g-', 'LineWidth', 2, 'DisplayName', 'Planned Path');
+    legend(mapAxes, 'show');
+    fprintf('Visualization on Planned Path finished\n\n');
+
+    % === Visualizing Torso ===
+    % Torso Size parameter
+    torsoLength = 0.4;  % [m] 
+    torsoWidth  = 0.2;  % [m]
+
+    halfL       = torsoLength/2;
+    halfW       = torsoWidth/2;
+
+    % Local Square Corner
+    localRect = [ +halfL, +halfW;
+                  +halfL, -halfW;
+                  -halfL, +halfW;
+                  -halfL, -halfW];  % (4x2) Mat
+
+    % depict rectangular trajectory of torso on planned path
+    % for every path ; its too slow ; depict rectangle per 3 points traj
+    nPoints     = size(plannedPath,1);
+    skip        = 3;
+
+    hold(mapAxes, 'on');    % Depict on trajectory
+
+    for idx = 1:skip:nPoints
+        x   = plannedPath(idx, 1);
+        y   = plannedPath(idx, 2);
+        yaw = plannedPath(idx, 6);  % yaw data in planned path
+
+        % Get Rotational Matrix
+        R = [cos(yaw)   ,   -sin(yaw);
+             sin(yaw)   ,   cos(yaw)];
+
+        % Change Local rectangular corner (4*2) -> Global (4*2)
+        globalXY    = (R * localRect')';       % 4*2 Mat
+        globalXY    = globalXY + repmat([x, y], 4, 1); % translate to global X, Y
+
+        Xc      = globalXY(:,1);
+        Yc      = globalXY(:,2);
+        Zc      = torsoHeight * ones(4, 1);
+
+        
+
+
+
+
+else
+    fprintf('I cannot find optimal Path LOL\n');
+end
+
+
+fprintf('Global Navigation Stack has arrived\n');
+% 250604 4
