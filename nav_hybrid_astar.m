@@ -17,7 +17,7 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
 % goalPose          - Robot Goal Pose  [x, y, z, r, p, y] (m, rad)
 %
 % %%%%%%%%%%%%%%%%%%%%%%%%%%% Output %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% path              - Navigated Path (Optimal Path)
+% path              - Navigated Path (Optimal Path, planned path)
     fprintf('Hybrid A star Path Planning Start');
 
     % 1. Hybrid A star Parameter Setting
