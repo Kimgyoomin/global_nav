@@ -1,0 +1,5 @@
+# Ignore backup and temporary files
+*.asv
+.DS_Store
+*~
+.idea/
