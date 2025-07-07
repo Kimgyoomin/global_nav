@@ -45,7 +45,7 @@ function [map3D, xLimits, yLimits, zLimits] = nav_mapping()
     % X : 5.5 ~ 6, Y : 4, 9, Z : 0 ~ 3
     obstacle2_x_range = 5.5:1/resolution:6;
     obstacle2_y_range = 4:1/resolution:9;
-    obstacle2_z_range = 0:1/resolution:3;
+    obstacle2_z_range = 0:1/resolution:0.1;
     [X2, Y2, Z2] = meshgrid(obstacle2_x_range, obstacle2_y_range, ...
         obstacle2_z_range);
     obstacle2_points = [X2(:), Y2(:), Z2(:)];

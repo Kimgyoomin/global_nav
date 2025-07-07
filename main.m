@@ -107,7 +107,7 @@ fprintf('Hybrid A* Navigation Initialized\n\n');
 % nav_hybrid_astar.m load
 % map, robot model, startPose, goalPose deliver
 plannedPath = nav_hybrid_astar(map3D, robot, robotConstraints, ...
-                               startPose, goalPose, xLimits, yLimits);
+                               startPose, goalPose, xLimits, yLimits, zLimits);
 
 fprintf('Hybrid A* Navigation Finished \n');
 
@@ -148,7 +148,6 @@ if ~isempty(plannedPath)
         x   = plannedPath(idx, 1);
         y   = plannedPath(idx, 2);
         yaw = plannedPath(idx, 6);  % yaw data in planned path
-
         % Get Rotational Matrix
         R = [cos(yaw)   ,   -sin(yaw);
              sin(yaw)   ,   cos(yaw)];
