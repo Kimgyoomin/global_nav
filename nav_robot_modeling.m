@@ -57,9 +57,12 @@ function[robot, robotConstraints] = nav_robot_modeling()
     % Ability for robot which robot can turn in min radius / 회전선회최소반경
     robotConstraints.minTurningRadius   = 0.5;          % [m]
     % Heights which robot can step / Change based on Control methods
-    robotConstraints.maxStepHeight     = 0.2;          % [m]
+    robotConstraints.maxStepHeight     = 0.16;          % [m], based on Unitree Go2
     % max Slope Degree robot can go / According to broshure
-    robotConstraints.maxSlope           = deg2rad(40);   % [rad]
-
+    robotConstraints.maxSlope           = deg2rad(40);  % [rad]
+    % body height
+    robotConstraints.bodyHeight         = 0.40;         % [m]
+    % torso Center Height
+    % robotConstraints.torsoCenterHeight  = 0.30;         % [m] not accurate
+    robotConstraints.torsoCenterHeight  = 0.35;         % [m] more make sense
 end
-    

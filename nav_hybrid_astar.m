@@ -3,7 +3,7 @@
 % Robot's Kinematic characteristic will be in this algo
 
 function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
-                                startPose, goalPose, xLimits, yLimits)
+                                startPose, goalPose, xLimits, yLimits, zLimits)
     global INFLATED2D;  % inflated 2D map set in main.m
     
 % nav_hybrid_astar : 4 legged robot will navigate through given 3D map
@@ -380,6 +380,57 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     end
 
 
+% =================== Check if its Steppable ===========================
+    function [canStep, dz, stepPenalty] = checkStepable(x, y, map3D, robotConst, params, zLimits)
+        % x, y          : Position where we'll check plane [m]
+        % currentZ      : Center of Torso for current Node [m]
+        % map3D         : object for occupancyMap3D
+        % robotConstraints : struct for robotConstraints
+        % params        : struct for parameters (costweight, Stepsize ...)
+        %
+        % Output
+        % canStep       : Logical checking -> if true you can overcome up
+        %                 to maxStepHeight
+        % dz            : difference between foot position and obstacle
+        % stepPenalty   : cost if it tries to overcome (inf -> impossible)
+
+        % a. Create sampling Axes for z
+        % [~, ~, zL]  = map3D.getMapLimits;       % 3x2 arrangement
+        % res     = map3D.Resolution;         % cells per meter
+        % zs      = zL(1) : 1/res : zL(2);    % from ground to max height
+        zs      = zLimits(1) : 1/map3D.Resolution : zLimits(2);
+
+        % b. static (x, y) , point with zs and check occupancy
+        N       = numel(zs);
+        pts     = [repmat(x, N, 1), repmat(y, N, 1), zs'];
+        occ     = map3D.getOccupancy(pts);  % prob between 0~1
+        idx     = find(occ > map3D.OccupiedThreshold, 1, 'first');
+
+        if isempty(idx)
+            % No obstacle (?) 아니 이거 어쩌피 평면에서면 높이 0이니까 걍 true두면 안되나
+            canStep     = false;
+            dz          = 0;
+            stepPenalty = 0;
+            return;
+        end
+
+        % c. Height for first collision (z axes)
+        hObs    = zs(idx);
+        dz      = hObs;
+
+        % d. simple comparison : does obstacle height is under
+        % maxStepHeight?
+        if hObs <= robotConst.maxStepHeight
+            canStep     = true;
+            % example : basic step cost * step weight(for 30%)
+            stepPenalty = params.stepSize * params.costWeight.distance * 20.0 * 2.0;
+        else
+            canStep     = false;
+            stepPenalty = inf;      % you cannot overcome -> pass the Node
+        end
+    end
+
+
     % --- checkCollision function ---
     % We'll check whether roboot collide with world map at current Pose
     % Just think about robot torso -> We'll make robot torso into simple
@@ -601,14 +652,58 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
             isCollision = checkCollision2D(nextNode.x, nextNode.y, ...
                 xLimits, yLimits);
             
+            % B-2 check steppable (based on ray-cast)
+            % [canStep, dz, stepPenalty] = checkStepable( ...
+            %     nextNode.x, nextNode.y, currentNode.z, map3D, ...
+            %     robotConstraints, parameters);
+
+
             % C. Check Robot Constraints (maxslope, step height)
-            isValidConstraints = checkRobotConstraints([nextNode.x, nextNode.y, nextNode.z, ...
-                nextNode.roll, nextNode.pitch, nextNode.yaw], ...
-                map3D, robotConstraints, currentNode);
+            % isValidConstraints = checkRobotConstraints([nextNode.x, nextNode.y, nextNode.z, ...
+            %     nextNode.roll, nextNode.pitch, nextNode.yaw], ...
+            %     map3D, robotConstraints, currentNode);
 
             % C - 1. Check Robot Constraints (check both collision, constraints)
-            if isCollision || ~isValidConstraints
-                continue;   % if robot banned from collision check and contraints -> this node invalid
+            % if isCollision || ~isValidConstraints
+            %     if canStep
+            %         % overcoming : update center of torso
+            %         nextNode.z = currentNode.z + dz;
+            %     else
+            %         continue;   % obstacle which cannot overcome -> skip
+            %     end
+            % 
+            % 
+            % 
+            %     continue;   % if robot banned from collision check and contraints -> this node invalid
+            % end
+
+            % B-2 check steppable  (based ray-cast)
+            [canStep, hObs, stepPenalty] = checkStepable( ...
+                nextNode.x, nextNode.y, map3D, robotConstraints, ...
+                parameters, zLimits);
+
+            % 1) if there only 2D collision
+            if isCollision
+                if canStep
+                    % you can overcome -> update center of torso(z) with
+                    % obstacle height
+                    nextNode.z = robotConstraints.torsoCenterHeight + hObs;
+                else
+                    % if you cannot overcome -> skip
+                    continue;
+                end
+            else
+                % Plane
+                nextNode.z = robotConstraints.torsoCenterHeight;
+                stepPenalty = 0;    % No additional cost for plane
+            end
+
+            % 2) Other robot constraints (slope or stepHeight)
+            if ~checkRobotConstraints([nextNode.x, nextNode.y, nextNode.z, ...
+                nextNode.roll, nextNode.pitch, nextNode.yaw], ...
+                map3D, robotConstraints, currentNode)
+
+                continue;
             end
             
             
@@ -617,15 +712,17 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
             % cost will be following = (parameters.stepSize) *
             % move_cost_multiplier + (etc... like traversability)
             distanceCost = parameters.stepSize * move_cost_multiplier;
-    
-            % traversabilityCost = getTraversibilityCost(nextNode, map3D);
-            % traversabilityCost는 나중에 구현!!!!!
 
             % if traversabilityCost is defined ...
             % nextNode.g_cost = currentNode.g_cost + distanceCost +
             % traversibilityCost;
+
+            % ============== changed 250619 ====================
             % From now, just distance cost
             nextNode.g_cost = currentNode.g_cost + distanceCost;
+
+            % From now, distance cost + step penalty
+            nextNode.g_cost = currentNode.g_cost + distanceCost + stepPenalty;
 
             % E. calculate h_cost (heuristic function cost)
             nextNode.h_cost = calculateHeuristic(nextNode, goalNode,...
@@ -663,4 +760,4 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     %       %   - 새로운 노드를 Open List에 추가 아니면 Update
 
 end
-% 250604 4
+% 250619 4
