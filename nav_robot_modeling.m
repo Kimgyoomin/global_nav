@@ -55,11 +55,21 @@ function[robot, robotConstraints] = nav_robot_modeling()
     % It should be changed after.....checking yaw vel
     robotConstraints.maxAngularVelocity = pi/6;         % [rad/s]
     % Ability for robot which robot can turn in min radius / 회전선회최소반경
-    robotConstraints.minTurningRadius   = 0.5;          % [m]
+    robotConstraints.minTurningRadius   = 0.05;          % [m]
     % Heights which robot can step / Change based on Control methods
     robotConstraints.maxStepHeight     = 0.2;          % [m]
     % max Slope Degree robot can go / According to broshure
+<<<<<<< Updated upstream
     robotConstraints.maxSlope           = deg2rad(40);   % [rad]
 
 end
     
+=======
+    robotConstraints.maxSlope           = deg2rad(40);  % [rad]
+    % body height
+    robotConstraints.bodyHeight         = 0.40;         % [m]
+    % torso Center Height
+    % robotConstraints.torsoCenterHeight  = 0.30;         % [m] not accurate
+    robotConstraints.torsoCenterHeight  = 0.5;         % [m] more make sense
+end
+>>>>>>> Stashed changes

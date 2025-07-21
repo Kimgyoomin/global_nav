@@ -16,23 +16,23 @@ fprintf('Map Creation and Initialize finished\n\n');
 fprintf('Visualizing Mapping\n');
 mapFigure   = figure('Name', 'Main Script - Initial Empty 3D Occupancy Map');
 mapAxes     = axes('Parent', mapFigure);    % Axes Handle store (will use for
+
 % Robot Visualization
-show(map3D, 'Parent',mapAxes);          % Draw map based on specific axes
+show(map3D, 'Parent',mapAxes);              % Draw map based on specific axes
 title('Main Script - Initial Empty 3D Occupancy Grid Map (20x20x5m)');
 xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
 view(3); % 3D 뷰
 axis equal;
-hold(mapAxes, 'on');            % can draw on same axes so hold!!
+hold(mapAxes, 'on');                        % can draw on same axes so hold!!
 fprintf('Initial empty map visualiztion finished \n\n');
 
 % 3D -> 2D slice creation (At torso height XY plane)
 % build2DSlice : z = binary map return at the torsoHeight
-torsoHeight = 0.3; % [m] height of torso center
+torsoHeight = 0.5; % [m] height of torso center
 map2D_binary = nav_slicing2D(map3D, torsoHeight, xLimits, yLimits);
 
-
 % Inflate 2D map : for just C loop
-rabotRadius = 0.2;  % [m] radius of torso
+rabotRadius = 0.4;  % [m] radius of torso
 resolution = map3D.Resolution; % map3D.Resoltuion == cells/m (ex:10)
 map2D_inflated = inflate2DManually(map2D_binary, rabotRadius, resolution);
 
@@ -50,11 +50,11 @@ fprintf('Robot modeling finished \n');
 % Robot start pose (Orientation of base link in World Coordinate)
 % [x, y, z, roll, pitch, yaw]
 % For example : Set Robot in the O in map (X=0, Y=0, Z=0.3, Yaw = 0)
-startPose            = [0, 0, 0.3, 0, 0, 0];   %[x, y, z, r, p, y]
+startPose            = [0, 0, robotConstraints.torsoCenterHeight, 0, 0, 0];   %[x, y, z, r, p, y]
 startPosition        = startPose(1:3);
 % Robot's Goal Orientation
 % For example : Set Robot in the (X = 9, Y = 9, Z = 0.3, Yaw = 90)
-goalPose             = [9, 9, 0.3, 0, 0, deg2rad(90)];
+goalPose             = [9, 9, robotConstraints.torsoCenterHeight, 0, 0, deg2rad(90)];
 goalPosition         = goalPose(1:3);
 
 % Initial Robot joint configuration (Home pose v basic pose)
@@ -159,7 +159,8 @@ if ~isempty(plannedPath)
 
         Xc      = globalXY(:,1);
         Yc      = globalXY(:,2);
-        Zc      = torsoHeight * ones(4, 1);
+        % Zc      = torsoHeight * ones(4, 1);
+        Zc      = robotConstraints.torsoCenterHeight * ones(4, 1);  
 
         % Draw transparency rectangle
         patch( Xc, Yc, Zc,          ... % Corner Coordinate
@@ -178,6 +179,38 @@ else
     fprintf('I cannot find optimal Path LOL\n');
 end
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 4. DMP Local Planner with Dynamic Obstacle Avoidance
+fprintf('DMP Local Planner Simulation Initialized\n');
+
+% 가. 시뮬레이션을 위한 동적 장애물 생성
+% A*는 알지 못했던 새로운 장애물을 경로 중간에 생성합니다.
+dynamicObstacle.pos = [4.5, 4.5, robotConstraints.torsoCenterHeight]; % 장애물 중심 위치
+dynamicObstacle.size = [0.5, 0.5, 0.5]; % 장애물 크기 (a, b, c) - 반경
+dynamicObstacle.shape = [1, 1, 1];     % 장애물 형태 (m, n, p) - 1,1,1은 타원체
+
+% 장애물 시각화
+[X,Y,Z] = ellipsoid(dynamicObstacle.pos(1), dynamicObstacle.pos(2), dynamicObstacle.pos(3), ...
+                    dynamicObstacle.size(1), dynamicObstacle.size(2), dynamicObstacle.size(3));
+surf(mapAxes, X, Y, Z, 'FaceColor', 'r', 'EdgeColor', 'none', 'FaceAlpha', 0.8, 'DisplayName', 'Dynamic Obstacle');
+fprintf('Dynamic Obstacle Added for Simulation.\n');
+
+% 나. DMP Follower 실행
+actualPath = nav_dmp_follower(plannedPath, robotConstraints, dynamicObstacle);
+fprintf('DMP Local Planner Simulation Finished.\n');
+
+% 다. 실제 주행 경로 시각화
+if ~isempty(actualPath)
+    fprintf('Visualizing Actual DMP Path.\n');
+    plot3(mapAxes, actualPath(:,1), actualPath(:,2), actualPath(:,3), 'm--', 'LineWidth', 2.5, 'DisplayName', 'DMP Actual Path');
+    legend(mapAxes, 'show');
+    title('A* Global Path vs DMP Local Path with Obstacle Avoidance');
+    fprintf('Visualization of DMP Path finished.\n');
+else
+    fprintf('DMP follower failed to generate a path.\n');
+end
+
+
 
 fprintf('Global Navigation Stack has arrived\n');
-% 250604 4
+% 25016
