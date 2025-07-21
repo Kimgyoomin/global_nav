@@ -27,12 +27,14 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     % p/r ]
     parameters.stepSize         = 0.2;      % Dist per step [m]
     parameters.maxIterations    = 50000;     % Max Searching steps
-    parameters.tolerance        = 0.1;      % [m] / in tol, it will be goal
+    parameters.tolerance        = 0.07;      % [m] / in tol, it will be goal
 
     % Cost function params
     parameters.costWeight.distance      = 1.0;
     parameters.costWeight.orientation   = 2.0;
     parameters.costWeight.collision     = 1e+4; % If collision ; die
+    parameters.costWeight.stepOver      = 1.0;
+    parameters.costWeight.zHeuristic    = 5.0;
 
     % -- Define Robot's 2D Motion Primitives
     % Each Motion will be define as [delta_x, delta_y, delta_yaw,
@@ -144,7 +146,7 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     % searching
     % calculate h_cost of start Node
     startNode.h_cost = calculateHeuristic(startNode, goalNode, ...
-        robotConstraints.minTurningRadius);
+        robotConstraints.minTurningRadius, parameters);
     startNode.f_cost = startNode.g_cost + startNode.h_cost;     % f_cost = g_cost + h_cost
     openList         = [startNode.f_cost, 1];   % [f_cost, closedList_index]
 
@@ -213,7 +215,7 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
         % check, cost calculate
         generatedNodes = expandNode(currentNode, currentClosedListIndex, ...
             map3D, robot, robotConstraints, parameters, goalNode, ...
-            nodeTemplate, motionPrimitives);
+            nodeTemplate, motionPrimitives, xLimits, yLimits, zLimits);
         
         % == Open List and Closed List Update ==
         for i = 1:length(generatedNodes)
@@ -258,7 +260,7 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
         
         if mod(iter, 100) == 0
             fprintf('Current iter : %d, Open List Size : %d, Current Node f_cost : %.2f\n', ...
-+             iter, size(openList, 1), currentNode.f_cost);
+             iter, size(openList, 1), currentNode.f_cost);
         end
     end
     
@@ -268,24 +270,24 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     elseif isempty(path)
         fprintf('Search failed : Open List is empty so u cannot find a path\n');
     end
-
+    
+    % Calls the smoothing function after a path is found
+    if ~isempty(path)
+        fprintf('Path found. Smoothing path with B-Spline...\n');
+        path = smoothPathWithBSpline(path, 3, 200); % Degrees 3, 200 output points
+        fprintf('B-Spline smoothing finished\n');
+    end
 
     %5. Path re-construct (if search succeed)
     fprintf('\n === Hybrid A star search finisehd === \n');
-    fprintf('Map, Robot Model, start/Goal pose lets go~~~\n');
 
     % -- Helper Functions ---
 % =========== Heuristic Function =========== %
 % calculateHeuristic func : Calculate heristic cost from currentNode to
 % goalNode
-    function h = calculateHeuristic(currentNode, goalNode, minTurningRadius)
-        % For Hybrid A star, Reeds-shepp or Dubins length will be used for
-        % heuristic
-        % In here, we'll use Reeds-shepp path for planning
-
+    function h = calculateHeuristic(currentNode, goalNode, minTurningRadius, parameters)
         % start pose [x, y, yaw]
         startState  = [currentNode.x, currentNode.y, currentNode.yaw];
-
         % goal pose [x, y, yaw]
         goalState   = [goalNode.x, goalNode.y, goalNode.yaw];
 
@@ -380,6 +382,60 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     end
 
 
+<<<<<<< Updated upstream
+=======
+% =================== Check if its Steppable ===========================
+    function [canStep, groundZ, stepPenalty] = checkStepable(x, y, map3D, robotConst, params, zLimits)
+    % function groundOrObstacleZ = checkStepable(x, y, map3D, zLimits)
+        % x, y          : Position where we'll check plane [m]
+        % currentZ      : Center of Torso for current Node [m]
+        % map3D         : object for occupancyMap3D
+        % robotConst    : struct for robotConstraints
+        % params        : struct for parameters (costweight, Stepsize ...)
+        % zLimits       : map's Z limits
+        %
+        % Output
+        % canStep           : Logical checking - true if the robot can physically step onto this Z height
+        % groundOrObstacleZ : The actual Z height of the ground or the top surface of the obstacle at (x,y)
+        % stepPenalty       : Additional cost for stepping (0 for flat, >0 for step-over, inf for impossible)
+
+        % a. Create sampling Axes for z
+        zs        = zLimits(1) : 1/map3D.Resolution : zLimits(2);
+
+        % b. static (x, y) , point with zs and check occupancy
+        N       = numel(zs);
+        % pts     = [repmat(x, N, 1), repmat(y, N, 1), zs'];
+        pts     = [repmat(x, numel(zs), 1), repmat(y, numel(zs), 1), zs'];
+        % occ     = map3D.getOccupancy(pts);  % prob between 0~1
+        occ     = map3D.getOccupancy(pts) > map3D.OccupiedThreshold;
+    
+        if ~any(occ)
+            % plane
+            canStep     = true;
+            groundZ     = zLimits(1);
+            stepPenalty = 0;
+            return;
+        end
+
+        % occupied index for the top of wall
+        idxTop          = find(occ, 1, 'last');
+        % obstacleTop     = zs(idxtop) - zLimits(1);
+        obstacleTop     = zs(idxTop);
+        groundZ         = zLimits(1);   % Height 
+
+        % Difference of height
+        heightDiff      = obstacleTop - groundZ;
+        if heightDiff <= robotConst.maxStepHeight
+            canStep = true;
+            stepPenalty = params.stepSize * params.costWeight.distance * ...
+                (heightDiff / robotConst.maxStepHeight) * params.costWeight.stepOver;
+        else
+            canStep     = false;
+            stepPenalty = inf;
+        end
+    end
+
+>>>>>>> Stashed changes
     % --- checkCollision function ---
     % We'll check whether roboot collide with world map at current Pose
     % Just think about robot torso -> We'll make robot torso into simple
@@ -497,11 +553,10 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     % --- checkRobotConstraints function ---
     % checkRobotConstraints : As the Robot pose, check robot's physical
     % constraints (ex: max slope, max step height)
+    % function isValid = checkRobotConstraints(robotPose, map3D, ...
+    %         robotConstraints, currentNode)
     function isValid = checkRobotConstraints(robotPose, map3D, ...
-            robotConstraints, currentNode)
-        % robotPose : we'll check robot pose [x, y, z, r, p, y]
-        % map3D : occupancyMap3D object (geographical information)
-        % robotConstraints : robots' constraints (maxSlope, maxStepHeight)
+            robotConstraints, zLimits)
 
         isValid = true;     % Basically considered as valid
 
@@ -530,26 +585,25 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
 
         % C. difference of z check
         % If there z moving in motion primitve, this would be important
-        if abs(robotPose(3) - currentNode.z) > robotConstraints.maxStepHeight
-            isValid = false;
-            % fprintf('Constraints : Z difference warning (%.2f m).
-            % \n', abs(robotPose(3) - currentNode.z));
-            return;
-        end
+        % This would be done in expandNode //
+        %%%%%%%%%%%%%%%%%% 250708
+        % if abs(robotPose(3) - currentNode.z) > robotConstraints.maxStepHeight
+        %     isValid = false;
+        %     % fprintf('Constraints : Z difference warning (%.2f m).
+        %     % \n', abs(robotPose(3) - currentNode.z));
+        %     return;
+        % end
 
         % Check map's Z (need minZ, maxZ defined at nav_mapping)
         % cannot use map3D.getMapLimits(), hardcoded value, parameters
         % value
         % nav_mapping.m -> minZ = 0, maxZ = 5
-        minMapZ = 0;
-        maxMapZ = 5;
+        minMapZ = zLimits(1);
+        maxMapZ = zLimits(2);
         if robotPose(3) < minMapZ || robotPose(3) > maxMapZ
             isValid = false;
-            % fprintf(' Its out of Constraints : Robot is out of map');
             return;
         end
-       % if all constraints fine, valid 
-
     end
 
 
@@ -558,13 +612,12 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     % --- expandNode function ---
     function generateNodes = expandNode(currentNode, currentClosedListIndex,...
                             map3D, robot, robotConstraints, parameters, goalNode,...
-                            nodeTemplate, motionPrimitives)
+                            nodeTemplate, motionPrimitives, xLimits, yLimits, zLimits)
         generateNodes = []; % Storage where expanded Node will be stored
 
         % A. get motion Primitives in CurrentNode
         for i  = 1:length(motionPrimitives)
             motion = motionPrimitives{i};   % [delta_x, delta_y, delta_yaw, cost_multiplier]
-
             delta_x                 = motion(1);
             delta_y                 = motion(2);
             delta_yaw               = motion(3);
@@ -582,25 +635,20 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
             nextNode        = nodeTemplate;
             nextNode.x      = currentNode.x + world_delta_x;
             nextNode.y      = currentNode.y + world_delta_y;
-            nextNode.z      = currentNode.z; % for Future work, stair, slope etc...
+
+            % nextNode.z      = currentNode.z; % for Future work, stair, slope etc...
             nextNode.roll   = currentNode.roll;  % initial roll would be same
             nextNode.pitch  = currentNode.pitch; % initial pitch would be same
-            nextNode.yaw    = currentNode.yaw + delta_yaw;
-
+            % nextNode.yaw    = currentNode.yaw + delta_yaw;
             % Normalization Yaw angle (~pi ~ pi)
-            nextNode.yaw    = atan2(sin(nextNode.yaw), cos(nextNode.yaw));
+            % nextNode.yaw    = atan2(sin(nextNode.yaw), cos(nextNode.yaw));
+            nextNode.yaw    = atan2(sin(currentNode.yaw + delta_yaw), cos(currentNode.yaw + delta_yaw));     
             
-            % B. Collision Checking for Next Node (checkCollision function
-            % would be called
-            % isCollision = checkCollision([nextNode.x, nextNode.y, nextNode.z, ...
-            %     nextNode.roll, nextNode.pitch, nextNode.yaw], ...
-            %     map3D, robotConstraints);
-
-            % B-1 checkCollision with 2D inflated Map
-            % isCollision = checkCollision2D(nextNode.x, nextNode.y);
-            isCollision = checkCollision2D(nextNode.x, nextNode.y, ...
-                xLimits, yLimits);
+            % 1. Get ground height at the next location
+            [canStep, groundZ, stepPenalty] = checkStepable( ... 
+                nextNode.x, nextNode.y, map3D, robotConstraints, parameters, zLimits);
             
+<<<<<<< Updated upstream
             % C. Check Robot Constraints (maxslope, step height)
             isValidConstraints = checkRobotConstraints([nextNode.x, nextNode.y, nextNode.z, ...
                 nextNode.roll, nextNode.pitch, nextNode.yaw], ...
@@ -609,9 +657,57 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
             % C - 1. Check Robot Constraints (check both collision, constraints)
             if isCollision || ~isValidConstraints
                 continue;   % if robot banned from collision check and contraints -> this node invalid
+=======
+            if ~canStep
+                continue;
+>>>>>>> Stashed changes
             end
+
+            % check for inflated map
+            % be aware of robot from being too close to obstacle
+            isColliding2D = checkCollision2D(nextNode.x, nextNode.y, xLimits, yLimits);
+            if isColliding2D
+                continue;   % If 2D inflated collision, discard this node (saftey distance invasion)
+            end
+
+            % 2. set nextNode.z : Z position calculation based on the
+            % center of Robot Torso
+            nextNode.z = groundZ + robotConstraints.torsoCenterHeight;
+
             
+            % 3. z diff constraints check (check if robot can move current
+            % z to next z)
+            z_diff_actual = abs(nextNode.z - currentNode.z);
+            if z_diff_actual > robotConstraints.maxStepHeight
+                continue;   % The step is too high for the robot, discard this node
+            end
+
+            % 4. Check 3D collision checking (check if robot torso 
+            isColliding3D = checkCollision([nextNode.x, nextNode.y, nextNode.z, ...
+                nextNode.roll, nextNode.pitch, nextNode.yaw], ...
+                map3D, robotConstraints);
+
+            if isColliding3D
+                continue; % If robot torso collide with 3D obstacle -> invalid
+            end
+
+            % 5. Check other Robot Constraints (slope etc...)
+            if ~checkRobotConstraints([nextNode.x, nextNode.y, nextNode.z, ...
+                    nextNode.roll, nextNode.pitch, nextNode.yaw], ...
+                    map3D, robotConstraints, zLimits)
+                continue;
+            end
+    
+
+            % 6. Calculate g_cost with a correctly calculated stepPenalty
+            % stepPenalty = 0;
+            % if z_diff_actual > 1e-3 % Add penalty when there is a significant height change
+            %     % Penalize based on the relative height difference
+            %     stepPenalty = parameters.stepSize * (z_diff_actual / robotConstraints.maxStepHeight) * ...
+            %         parameters.costWeight.stepOver;
+            % end
             
+<<<<<<< Updated upstream
             % D. g_cost calculate
             % g_cost = g_cost + current move cost
             % cost will be following = (parameters.stepSize) *
@@ -632,17 +728,22 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
                 robotConstraints.minTurningRadius);
 
             % F. calculate f_cost 
+=======
+            distanceCost    = parameters.stepSize * move_cost_multiplier;
+            nextNode.g_cost = currentNode.g_cost + distanceCost + stepPenalty;
+
+            % 7. calculate h_cost (heuristic function cost) and f_cost
+            nextNode.h_cost = calculateHeuristic(nextNode, goalNode, ...
+                robotConstraints.minTurningRadius, parameters);
+>>>>>>> Stashed changes
             nextNode.f_cost = nextNode.g_cost + nextNode.h_cost;
 
             % G. Store parent Node Index and motion primitives Index
             nextNode.parent_idx = currentClosedListIndex;
-            nextNode.motion_primitive_idx = i;  % Motion primitive Index
-            
-            % Store only valid Node to generateNodes
+            nextNode.motion_primitive_idx = i;
+
             generateNodes = [generateNodes; nextNode];
         end
-        % generateNodes will be used to update Open List and Closed List 
-        % Later
     end
     % for iter = 1 : paramters.maxIterations
     %       % a. Open List에서 가장 낮은 f_cost를 가진 노드 선택하기
@@ -663,4 +764,95 @@ function path = nav_hybrid_astar(map3D, robot, robotConstraints, ...
     %       %   - 새로운 노드를 Open List에 추가 아니면 Update
 
 end
+<<<<<<< Updated upstream
 % 250604 4
+=======
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%          For path smoothing, Use B-spline Method                %%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function smoothedPath = smoothPathWithBSpline(rawPath, degree, numOutputPoints)
+    % This Function used to smooth Path which outcomes from A* Algorithm
+    
+    % If the path is too short for the spline degree, return it as is
+    if size(rawPath, 1) <= degree
+        smoothedPath = rawPath;
+        return;
+    end
+
+    % Control Points are the points from the A* path
+    controlPoints   = rawPath(:, 1:3);    % X, Y, Z
+    yawAngles       = rawPath(:, 6);
+
+    % Convert yaw to vector components for smooth interpolation
+    yaw_x           = cos(yawAngles);
+    yaw_y           = sin(yawAngles);
+
+    % Combine all data to be smoothed
+    dataToSmooth    = [controlPoints, yaw_x, yaw_y];
+
+    n = size(dataToSmooth, 1) - 1;  % Number of control points - 1
+
+    % Create a clamped knot vector for the B-Spline
+    % This makes the spline start and end at the first and last control
+    % points
+    knots = [zeros(1, degree), linspace(0, 1, n - degree + 2), ones(1, degree)];
+
+    % Create a parameter vector for the output points
+    u = linspace(0, 1, numOutputPoints);
+
+    smoothedData = zeros(numOutputPoints, size(dataToSmooth, 2));
+    % Evaluate the B-Spline for each output point
+    for i = 1:length(u)
+        point = deBoor(degree, dataToSmooth, knots, u(i));
+        smoothedData(i, :) = point;
+    end
+
+    % Reconstruct the final smoothed path
+    smoothedPositions   = smoothedData(:, 1:3);
+    % Reconstruct yaw from the smoothed vector components
+    smoothedYaw         = atan2(smoothedData(:, 5), smoothedData(:, 4));
+
+    % For roll and pitch, we can linearly interpolate them as they are less
+    % critical
+    % Or assume they are zero for a flat ground scenario
+    numRawPoints    = size(rawPath, 1);
+    rawTime         = linspace(0, 1, numRawPoints);
+    smoothedRoll    = interp1(rawTime, rawPath(:, 4), u, 'linear');
+    smoothedPitch   = interp1(rawTime, rawPath(:, 5), u, 'linear');
+
+    smoothedPath    = [smoothedPositions, smoothedRoll', smoothedPitch', smoothedYaw];
+end
+
+function point = deBoor(k, d, t, u)
+    % De Boor's Algorithm to evaluate B-spline curve at Parameter u
+    % k     : degree of the spline
+    % d     : control points
+    % t     : knot vector
+    % u     : parameter value
+
+    % Find the interval in the knot vector at contains u
+    % Wants to find i s.t. t(i) <= u < t(i+1)
+    i   = find(u >=  t, 1, 'last');
+    % For clamped knots, handle the end case where u == 1
+    if u == t(end)
+        i = length(t) - k - 1;
+    end
+
+    % Create a new set of control points for this next level of recursion
+    c = d(i - k : i, :);
+
+    % Recursively compute the point
+    for r = 1:k
+        for j = k:-1:r
+            alpha = (u - t(j + i - k)) / (t(j + i - r + 1) - t(j + i - k));
+            if isnan(alpha) || isinf(alpha) % Handle division by zero
+                alpha = 0;
+            end
+            c(j + 1, :) = (1 - alpha) * c(j, :) + alpha * c(j + 1, :);
+        end
+    end
+    point = c(k+1, :);
+end
+% 250720
+>>>>>>> Stashed changes
